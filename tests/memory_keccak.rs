@@ -22,7 +22,7 @@ impl Database for MemoryDB {
         ))
     }
 
-    fn get(&self, key: DBKey) -> PmtreeResult<Option<Value>> {
+    fn get(&mut self, key: DBKey) -> PmtreeResult<Option<Value>> {
         Ok(self.0.get(&key).cloned())
     }
 
@@ -97,7 +97,8 @@ fn insert_delete() -> PmtreeResult<()> {
     }
 
     for (i, &leaf) in leaves.iter().enumerate() {
-        assert!(mt.verify(&leaf, &mt.proof(i)?));
+        let x = &mt.proof(i)?;
+        assert!(mt.verify(&leaf, x));
     }
 
     for i in (0..leaves.len()).rev() {

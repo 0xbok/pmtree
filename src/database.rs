@@ -18,7 +18,7 @@ pub trait Database {
         Self: Sized;
 
     /// Returns value from db by the key
-    fn get(&self, key: DBKey) -> PmtreeResult<Option<Value>>;
+    fn get(&mut self, key: DBKey) -> PmtreeResult<Option<Value>>;
 
     /// Puts the value to the db by the key
     fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()>;

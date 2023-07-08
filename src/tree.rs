@@ -82,7 +82,7 @@ where
     /// Loads existing Merkle Tree from the specified path/db
     pub fn load(db_config: D::Config) -> PmtreeResult<Self> {
         // Load existing db instance
-        let db = D::load(db_config)?;
+        let mut db = D::load(db_config)?;
 
         // Load root
         let root = H::deserialize(db.get(Key(0, 0).into())?.unwrap());
@@ -151,7 +151,7 @@ where
     }
 
     // Hashes the correct couple for the key
-    fn hash_couple(&self, depth: usize, key: usize) -> PmtreeResult<H::Fr> {
+    fn hash_couple(&mut self, depth: usize, key: usize) -> PmtreeResult<H::Fr> {
         let b = key & !1;
         Ok(H::hash(&[
             self.get_elem(Key(depth, b))?,
@@ -160,7 +160,7 @@ where
     }
 
     // Returns elem by the key
-    fn get_elem(&self, key: Key) -> PmtreeResult<H::Fr> {
+    fn get_elem(&mut self, key: Key) -> PmtreeResult<H::Fr> {
         let res = self
             .db
             .get(key.into())?
@@ -247,7 +247,7 @@ where
 
     // Fills hashmap subtree
     fn fill_nodes(
-        &self,
+        &mut self,
         key: Key,
         start: usize,
         end: usize,
@@ -310,7 +310,7 @@ where
     }
 
     /// Computes a Merkle proof for the leaf at the specified index
-    pub fn proof(&self, index: usize) -> PmtreeResult<MerkleProof<H>> {
+    pub fn proof(&mut self, index: usize) -> PmtreeResult<MerkleProof<H>> {
         if index >= self.capacity() {
             return Err(PmtreeErrorKind::TreeError(TreeErrorKind::IndexOutOfBounds));
         }
@@ -340,7 +340,7 @@ where
     }
 
     /// Returns the leaf by the key
-    pub fn get(&self, key: usize) -> PmtreeResult<H::Fr> {
+    pub fn get(&mut self, key: usize) -> PmtreeResult<H::Fr> {
         if key >= self.capacity() {
             return Err(PmtreeErrorKind::TreeError(TreeErrorKind::IndexOutOfBounds));
         }
