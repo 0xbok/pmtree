@@ -9,6 +9,7 @@ use rln::utils::str_to_fr;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
+use async_trait::async_trait;
 
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
@@ -46,30 +47,31 @@ impl Hasher for PoseidonHash {
 #[derive(Default)]
 struct MemoryDBConfig;
 
+#[async_trait]
 impl Database for MemoryDB {
     type Config = MemoryDBConfig;
 
-    fn new(_db_config: MemoryDBConfig) -> PmtreeResult<Self> {
+    async fn new(_db_config: MemoryDBConfig) -> PmtreeResult<Self> {
         Ok(MemoryDB(HashMap::new()))
     }
 
-    fn load(_db_config: MemoryDBConfig) -> PmtreeResult<Self> {
+    async fn load(_db_config: MemoryDBConfig) -> PmtreeResult<Self> {
         Err(PmtreeErrorKind::DatabaseError(
             DatabaseErrorKind::CannotLoadDatabase,
         ))
     }
 
-    fn get(&mut self, key: DBKey) -> PmtreeResult<Option<Value>> {
+    async fn get(&mut self, key: DBKey) -> PmtreeResult<Option<Value>> {
         Ok(self.0.get(&key).cloned())
     }
 
-    fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
+    async fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
         self.0.insert(key, value);
 
         Ok(())
     }
 
-    fn put_batch(&mut self, subtree: HashMap<DBKey, Value>) -> PmtreeResult<()> {
+    async fn put_batch(&mut self, subtree: HashMap<DBKey, Value>) -> PmtreeResult<()> {
         self.0.extend(subtree.into_iter());
 
         Ok(())
@@ -81,10 +83,11 @@ struct SledConfig {
     path: String,
 }
 
+#[async_trait]
 impl Database for MySled {
     type Config = SledConfig;
 
-    fn new(db_config: SledConfig) -> PmtreeResult<Self> {
+    async fn new(db_config: SledConfig) -> PmtreeResult<Self> {
         let db = sled::open(db_config.path).unwrap();
         if db.was_recovered() {
             return Err(PmtreeErrorKind::DatabaseError(
@@ -95,7 +98,7 @@ impl Database for MySled {
         Ok(MySled(db))
     }
 
-    fn load(db_config: SledConfig) -> PmtreeResult<Self> {
+    async fn load(db_config: SledConfig) -> PmtreeResult<Self> {
         let db = sled::open(&db_config.path).unwrap();
 
         if !db.was_recovered() {
@@ -108,11 +111,11 @@ impl Database for MySled {
         Ok(MySled(db))
     }
 
-    fn get(&mut self, key: DBKey) -> PmtreeResult<Option<Value>> {
+    async fn get(&mut self, key: DBKey) -> PmtreeResult<Option<Value>> {
         Ok(self.0.get(key).unwrap().map(|val| val.to_vec()))
     }
 
-    fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
+    async fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
         self.0.insert(key, value).unwrap();
 
         self.0.flush().unwrap();
@@ -120,7 +123,7 @@ impl Database for MySled {
         Ok(())
     }
 
-    fn put_batch(&mut self, subtree: HashMap<DBKey, Value>) -> PmtreeResult<()> {
+    async fn put_batch(&mut self, subtree: HashMap<DBKey, Value>) -> PmtreeResult<()> {
         let mut batch = sled::Batch::default();
 
         for (key, value) in subtree {
@@ -133,9 +136,9 @@ impl Database for MySled {
     }
 }
 
-#[test]
-fn poseidon_memory() -> PmtreeResult<()> {
-    let mut mt = MerkleTree::<MemoryDB, PoseidonHash>::new(TEST_TREE_HEIGHT, MemoryDBConfig)?;
+#[tokio::test]
+async fn poseidon_memory() -> PmtreeResult<()> {
+    let mut mt = MerkleTree::<MemoryDB, PoseidonHash>::new(TEST_TREE_HEIGHT, MemoryDBConfig).await?;
 
     let leaf_index = 3;
 
@@ -143,7 +146,7 @@ fn poseidon_memory() -> PmtreeResult<()> {
     let id_commitment = poseidon_hash(&[identity_secret]);
 
     // let default_leaf = Fr::from(0);
-    mt.set(leaf_index, id_commitment).unwrap();
+    mt.set(leaf_index, id_commitment).await.unwrap();
 
     // We check correct computation of the root
     let root = mt.root();
@@ -156,7 +159,7 @@ fn poseidon_memory() -> PmtreeResult<()> {
         )
     );
 
-    let merkle_proof = mt.proof(leaf_index).expect("proof should exist");
+    let merkle_proof = mt.proof(leaf_index).await.expect("proof should exist");
     let path_elements = merkle_proof.get_path_elements();
     let identity_path_index = merkle_proof.get_path_index();
 
@@ -257,14 +260,14 @@ fn poseidon_memory() -> PmtreeResult<()> {
     Ok(())
 }
 
-#[test]
-fn poseidon_sled() -> PmtreeResult<()> {
+#[tokio::test]
+async fn poseidon_sled() -> PmtreeResult<()> {
     let mut mt = MerkleTree::<MySled, PoseidonHash>::new(
         TEST_TREE_HEIGHT,
         SledConfig {
             path: String::from("abacaba"),
         },
-    )?;
+    ).await?;
 
     let leaf_index = 3;
 
@@ -272,7 +275,7 @@ fn poseidon_sled() -> PmtreeResult<()> {
     let id_commitment = poseidon_hash(&[identity_secret]);
 
     // let default_leaf = Fr::from(0);
-    mt.set(leaf_index, id_commitment).unwrap();
+    mt.set(leaf_index, id_commitment).await.unwrap();
 
     // We check correct computation of the root
     let root = mt.root();
@@ -285,7 +288,7 @@ fn poseidon_sled() -> PmtreeResult<()> {
         )
     );
 
-    let merkle_proof = mt.proof(leaf_index).expect("proof should exist");
+    let merkle_proof = mt.proof(leaf_index).await.expect("proof should exist");
     let path_elements = merkle_proof.get_path_elements();
     let identity_path_index = merkle_proof.get_path_index();
 

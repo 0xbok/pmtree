@@ -3,6 +3,8 @@ use crate::*;
 use std::cmp::{max, min};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use async_recursion::async_recursion;
+
 
 // db[DEPTH_KEY] = depth
 const DEPTH_KEY: DBKey = (u64::MAX - 1).to_be_bytes();
@@ -44,28 +46,28 @@ where
     H: Hasher,
 {
     /// Creates new `MerkleTree` and store it to the specified path/db
-    pub fn new(depth: usize, db_config: D::Config) -> PmtreeResult<Self> {
+    pub async fn new(depth: usize, db_config: D::Config) -> PmtreeResult<Self> {
         // Create new db instance
-        let mut db = D::new(db_config)?;
+        let mut db = D::new(db_config).await?;
 
         // Insert depth val into db
         let depth_val = depth.to_be_bytes().to_vec();
-        db.put(DEPTH_KEY, depth_val)?;
+        db.put(DEPTH_KEY, depth_val).await?;
 
         // Insert next_index val into db
         let next_index = 0usize;
         let next_index_val = next_index.to_be_bytes().to_vec();
-        db.put(NEXT_INDEX_KEY, next_index_val)?;
+        db.put(NEXT_INDEX_KEY, next_index_val).await?;
 
         // Cache nodes
         let mut cache = vec![H::default_leaf(); depth + 1];
 
         // Initialize one branch of the `Merkle Tree` from bottom to top
         cache[depth] = H::default_leaf();
-        db.put(Key(depth, 0).into(), H::serialize(cache[depth]))?;
+        db.put(Key(depth, 0).into(), H::serialize(cache[depth])).await?;
         for i in (0..depth).rev() {
             cache[i] = H::hash(&[cache[i + 1], cache[i + 1]]);
-            db.put(Key(i, 0).into(), H::serialize(cache[i]))?;
+            db.put(Key(i, 0).into(), H::serialize(cache[i])).await?;
         }
 
         let root = cache[0];
@@ -80,18 +82,18 @@ where
     }
 
     /// Loads existing Merkle Tree from the specified path/db
-    pub fn load(db_config: D::Config) -> PmtreeResult<Self> {
+    pub async fn load(db_config: D::Config) -> PmtreeResult<Self> {
         // Load existing db instance
-        let mut db = D::load(db_config)?;
+        let mut db = D::load(db_config).await?;
 
         // Load root
-        let root = H::deserialize(db.get(Key(0, 0).into())?.unwrap());
+        let root = H::deserialize(db.get(Key(0, 0).into()).await?.unwrap());
 
         // Load depth & next_index values from db
-        let depth = db.get(DEPTH_KEY)?.unwrap().try_into().unwrap();
+        let depth = db.get(DEPTH_KEY).await?.unwrap().try_into().unwrap();
         let depth = usize::from_be_bytes(depth);
 
-        let next_index = db.get(NEXT_INDEX_KEY)?.unwrap().try_into().unwrap();
+        let next_index = db.get(NEXT_INDEX_KEY).await?.unwrap().try_into().unwrap();
         let next_index = usize::from_be_bytes(next_index);
 
         // Load cache vec
@@ -111,35 +113,35 @@ where
     }
 
     /// Sets a leaf at the specified tree index
-    pub fn set(&mut self, key: usize, leaf: H::Fr) -> PmtreeResult<()> {
+    pub async fn set(&mut self, key: usize, leaf: H::Fr) -> PmtreeResult<()> {
         if key >= self.capacity() {
             return Err(PmtreeErrorKind::TreeError(TreeErrorKind::IndexOutOfBounds));
         }
 
         self.db
-            .put(Key(self.depth, key).into(), H::serialize(leaf))?;
-        self.recalculate_from(key)?;
+            .put(Key(self.depth, key).into(), H::serialize(leaf)).await?;
+        self.recalculate_from(key).await?;
 
         // Update next_index in memory
         self.next_index = max(self.next_index, key + 1);
 
         // Update next_index in db
         let next_index_val = self.next_index.to_be_bytes().to_vec();
-        self.db.put(NEXT_INDEX_KEY, next_index_val)?;
+        self.db.put(NEXT_INDEX_KEY, next_index_val).await?;
 
         Ok(())
     }
 
     // Recalculates `Merkle Tree` from the specified key
-    fn recalculate_from(&mut self, key: usize) -> PmtreeResult<()> {
+    async fn recalculate_from(&mut self, key: usize) -> PmtreeResult<()> {
         let mut depth = self.depth;
         let mut i = key;
 
         loop {
-            let value = self.hash_couple(depth, i)?;
+            let value = self.hash_couple(depth, i).await?;
             i >>= 1;
             depth -= 1;
-            self.db.put(Key(depth, i).into(), H::serialize(value))?;
+            self.db.put(Key(depth, i).into(), H::serialize(value)).await?;
 
             if depth == 0 {
                 self.root = value;
@@ -151,44 +153,44 @@ where
     }
 
     // Hashes the correct couple for the key
-    fn hash_couple(&mut self, depth: usize, key: usize) -> PmtreeResult<H::Fr> {
+    async fn hash_couple(&mut self, depth: usize, key: usize) -> PmtreeResult<H::Fr> {
         let b = key & !1;
         Ok(H::hash(&[
-            self.get_elem(Key(depth, b))?,
-            self.get_elem(Key(depth, b + 1))?,
+            self.get_elem(Key(depth, b)).await?,
+            self.get_elem(Key(depth, b + 1)).await?,
         ]))
     }
 
     // Returns elem by the key
-    fn get_elem(&mut self, key: Key) -> PmtreeResult<H::Fr> {
+    async fn get_elem(&mut self, key: Key) -> PmtreeResult<H::Fr> {
         let res = self
             .db
-            .get(key.into())?
+            .get(key.into()).await?
             .map_or(self.cache[key.0], |value| H::deserialize(value));
 
         Ok(res)
     }
 
     /// Deletes a leaf at the `key` by setting it to its default value
-    pub fn delete(&mut self, key: usize) -> PmtreeResult<()> {
+    pub async fn delete(&mut self, key: usize) -> PmtreeResult<()> {
         if key >= self.next_index {
             return Err(PmtreeErrorKind::TreeError(TreeErrorKind::InvalidKey));
         }
 
-        self.set(key, H::default_leaf())?;
+        self.set(key, H::default_leaf()).await?;
 
         Ok(())
     }
 
     /// Inserts a leaf to the next available index
-    pub fn update_next(&mut self, leaf: H::Fr) -> PmtreeResult<()> {
-        self.set(self.next_index, leaf)?;
+    pub async fn update_next(&mut self, leaf: H::Fr) -> PmtreeResult<()> {
+        self.set(self.next_index, leaf).await?;
 
         Ok(())
     }
 
     /// Batch insertion from starting index
-    pub fn set_range<I: IntoIterator<Item = H::Fr>>(
+    pub async fn set_range<I: IntoIterator<Item = H::Fr>>(
         &mut self,
         start: usize,
         leaves: I,
@@ -196,11 +198,11 @@ where
         self.batch_insert(
             Some(start),
             leaves.into_iter().collect::<Vec<_>>().as_slice(),
-        )
+        ).await
     }
 
     /// Batch insertion, updates the tree in parallel.
-    pub fn batch_insert(&mut self, start: Option<usize>, leaves: &[H::Fr]) -> PmtreeResult<()> {
+    pub async fn batch_insert(&mut self, start: Option<usize>, leaves: &[H::Fr]) -> PmtreeResult<()> {
         let start = start.unwrap_or(self.next_index);
         let end = start + leaves.len();
 
@@ -213,7 +215,7 @@ where
         let root_key = Key(0, 0);
 
         subtree.insert(root_key, self.root);
-        self.fill_nodes(root_key, start, end, &mut subtree, leaves, start)?;
+        self.fill_nodes(root_key, start, end, &mut subtree, leaves, start).await?;
 
         let subtree = Arc::new(RwLock::new(subtree));
 
@@ -230,13 +232,13 @@ where
                 .into_iter()
                 .map(|(key, value)| (key.into(), H::serialize(value)))
                 .collect(),
-        )?;
+        ).await?;
 
         // Update next_index value in db
         if end > self.next_index {
             self.next_index = end;
             self.db
-                .put(NEXT_INDEX_KEY, self.next_index.to_be_bytes().to_vec())?;
+                .put(NEXT_INDEX_KEY, self.next_index.to_be_bytes().to_vec()).await?;
         }
 
         // Update root value in memory
@@ -246,7 +248,8 @@ where
     }
 
     // Fills hashmap subtree
-    fn fill_nodes(
+    #[async_recursion(?Send)]
+    async fn fill_nodes(
         &mut self,
         key: Key,
         start: usize,
@@ -265,8 +268,8 @@ where
         let left = Key(key.0 + 1, key.1 * 2);
         let right = Key(key.0 + 1, key.1 * 2 + 1);
 
-        let left_val = self.get_elem(left)?;
-        let right_val = self.get_elem(right)?;
+        let left_val = self.get_elem(left).await?;
+        let right_val = self.get_elem(right).await?;
 
         subtree.insert(left, left_val);
         subtree.insert(right, right_val);
@@ -274,11 +277,11 @@ where
         let half = 1 << (self.depth - key.0 - 1);
 
         if start < half {
-            self.fill_nodes(left, start, min(end, half), subtree, leaves, from)?;
+            self.fill_nodes(left, start, min(end, half), subtree, leaves, from).await?;
         }
 
         if end > half {
-            self.fill_nodes(right, 0, end - half, subtree, leaves, from)?;
+            self.fill_nodes(right, 0, end - half, subtree, leaves, from).await?;
         }
 
         Ok(())
@@ -310,7 +313,7 @@ where
     }
 
     /// Computes a Merkle proof for the leaf at the specified index
-    pub fn proof(&mut self, index: usize) -> PmtreeResult<MerkleProof<H>> {
+    pub async fn proof(&mut self, index: usize) -> PmtreeResult<MerkleProof<H>> {
         if index >= self.capacity() {
             return Err(PmtreeErrorKind::TreeError(TreeErrorKind::IndexOutOfBounds));
         }
@@ -322,7 +325,7 @@ where
         while depth != 0 {
             i ^= 1;
             witness.push((
-                self.get_elem(Key(depth, i))?,
+                self.get_elem(Key(depth, i)).await?,
                 (1 - (i & 1)).try_into().unwrap(),
             ));
             i >>= 1;
@@ -340,12 +343,12 @@ where
     }
 
     /// Returns the leaf by the key
-    pub fn get(&mut self, key: usize) -> PmtreeResult<H::Fr> {
+    pub async fn get(&mut self, key: usize) -> PmtreeResult<H::Fr> {
         if key >= self.capacity() {
             return Err(PmtreeErrorKind::TreeError(TreeErrorKind::IndexOutOfBounds));
         }
 
-        self.get_elem(Key(self.depth, key))
+        self.get_elem(Key(self.depth, key)).await
     }
 
     /// Returns the root of the tree

@@ -3,6 +3,7 @@ use pmtree::*;
 use std::collections::HashMap;
 use std::fs;
 use tiny_keccak::{Hasher as _, Keccak};
+use async_trait::async_trait;
 
 struct MyKeccak(Keccak);
 struct MySled(sled::Db);
@@ -12,10 +13,11 @@ struct SledConfig {
     path: String,
 }
 
+#[async_trait]
 impl Database for MySled {
     type Config = SledConfig;
 
-    fn new(db_config: SledConfig) -> PmtreeResult<Self> {
+    async fn new(db_config: SledConfig) -> PmtreeResult<Self> {
         let db = sled::open(db_config.path).unwrap();
         if db.was_recovered() {
             return Err(PmtreeErrorKind::DatabaseError(
@@ -26,7 +28,7 @@ impl Database for MySled {
         Ok(MySled(db))
     }
 
-    fn load(db_config: SledConfig) -> PmtreeResult<Self> {
+    async fn load(db_config: SledConfig) -> PmtreeResult<Self> {
         let db = sled::open(&db_config.path).unwrap();
 
         if !db.was_recovered() {
@@ -39,11 +41,11 @@ impl Database for MySled {
         Ok(MySled(db))
     }
 
-    fn get(&mut self, key: DBKey) -> PmtreeResult<Option<Value>> {
+    async fn get(&mut self, key: DBKey) -> PmtreeResult<Option<Value>> {
         Ok(self.0.get(key).unwrap().map(|val| val.to_vec()))
     }
 
-    fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
+    async fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
         self.0.insert(key, value).unwrap();
 
         self.0.flush().unwrap();
@@ -51,7 +53,7 @@ impl Database for MySled {
         Ok(())
     }
 
-    fn put_batch(&mut self, subtree: HashMap<DBKey, Value>) -> PmtreeResult<()> {
+    async fn put_batch(&mut self, subtree: HashMap<DBKey, Value>) -> PmtreeResult<()> {
         let mut batch = sled::Batch::default();
 
         for (key, value) in subtree {
@@ -90,14 +92,14 @@ impl Hasher for MyKeccak {
     }
 }
 
-#[test]
-fn insert_delete() -> PmtreeResult<()> {
+#[tokio::test]
+async fn insert_delete() -> PmtreeResult<()> {
     let mut mt = MerkleTree::<MySled, MyKeccak>::new(
         2,
         SledConfig {
             path: String::from("abacabas"),
         },
-    )?;
+    ).await?;
 
     assert_eq!(mt.capacity(), 4);
     assert_eq!(mt.depth(), 2);
@@ -122,36 +124,36 @@ fn insert_delete() -> PmtreeResult<()> {
     ];
 
     for i in 0..leaves.len() {
-        mt.update_next(leaves[i])?;
+        mt.update_next(leaves[i]).await?;
         assert_eq!(mt.root(), roots[i]);
     }
 
     for (i, &leaf) in leaves.iter().enumerate() {
-        let x = &mt.proof(i)?;
+        let x = &mt.proof(i).await?;
         assert!(mt.verify(&leaf, x));
     }
 
     for i in (0..leaves.len()).rev() {
-        mt.delete(i)?;
+        mt.delete(i).await?;
     }
 
     assert_eq!(mt.root(), default_tree_root);
 
-    assert!(mt.update_next(leaves[0]).is_err());
+    assert!(mt.update_next(leaves[0]).await.is_err());
 
     fs::remove_dir_all("abacabas").expect("Error removing db");
 
     Ok(())
 }
 
-#[test]
-fn batch_insertions() -> PmtreeResult<()> {
+#[tokio::test]
+async fn batch_insertions() -> PmtreeResult<()> {
     let mut mt = MerkleTree::<MySled, MyKeccak>::new(
         2,
         SledConfig {
             path: String::from("abacabasa"),
         },
-    )?;
+    ).await?;
 
     let leaves = [
         hex!("0000000000000000000000000000000000000000000000000000000000000001"),
@@ -160,7 +162,7 @@ fn batch_insertions() -> PmtreeResult<()> {
         hex!("0000000000000000000000000000000000000000000000000000000000000004"),
     ];
 
-    mt.batch_insert(None, &leaves)?;
+    mt.batch_insert(None, &leaves).await?;
 
     assert_eq!(
         mt.root(),
@@ -172,21 +174,21 @@ fn batch_insertions() -> PmtreeResult<()> {
     Ok(())
 }
 
-#[test]
-fn set_range() -> PmtreeResult<()> {
+#[tokio::test]
+async fn set_range() -> PmtreeResult<()> {
     let mut mt = MerkleTree::<MySled, MyKeccak>::new(
         2,
         SledConfig {
             path: String::from("abacabasab"),
         },
-    )?;
+    ).await?;
 
     let leaves = [
         hex!("0000000000000000000000000000000000000000000000000000000000000001"),
         hex!("0000000000000000000000000000000000000000000000000000000000000002"),
     ];
 
-    mt.set_range(2, leaves)?;
+    mt.set_range(2, leaves).await?;
 
     assert_eq!(
         mt.root(),
