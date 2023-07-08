@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 /// Trait that must be implemented for a Database
 pub trait Database {
-    /// Config for database. Default is necessary for a default() pmtree function
-    type Config: Default;
+    /// Config for database.
+    type Config;
 
     /// Creates new instance of db
     fn new(config: Self::Config) -> PmtreeResult<Self>
