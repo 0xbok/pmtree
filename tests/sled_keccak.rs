@@ -170,6 +170,16 @@ async fn batch_insertions() -> PmtreeResult<()> {
     );
 
     fs::remove_dir_all("abacabasa").expect("Error removing db");
+    let mt = MerkleTree::<MySled, MyKeccak>::load(
+        SledConfig {
+            path: String::from("abacabasa"),
+        },
+    ).await?;
+
+    assert_eq!(
+        mt.root(),
+        hex!("a9bb8c3f1f12e9aa903a50c47f314b57610a3ab32f2d463293f58836def38d36")
+    );
 
     Ok(())
 }

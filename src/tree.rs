@@ -83,6 +83,13 @@ where
 
     /// Loads existing Merkle Tree from the specified path/db
     pub async fn load(db_config: D::Config) -> PmtreeResult<Self> {
+        // assumes v.len() <= 8
+        fn to_8_be_bytes(v: Vec<u8>) -> [u8; 8] {
+            let mut array: [u8; 8] = [0; 8];
+            let src_len = v.len();
+            array[8 - src_len..].copy_from_slice(&v);
+            array
+        }
         // Load existing db instance
         let mut db = D::load(db_config).await?;
 
@@ -90,10 +97,10 @@ where
         let root = H::deserialize(db.get(Key(0, 0).into()).await?.unwrap());
 
         // Load depth & next_index values from db
-        let depth = db.get(DEPTH_KEY).await?.unwrap().try_into().unwrap();
+        let depth = to_8_be_bytes(db.get(DEPTH_KEY).await?.unwrap());
         let depth = usize::from_be_bytes(depth);
 
-        let next_index = db.get(NEXT_INDEX_KEY).await?.unwrap().try_into().unwrap();
+        let next_index = to_8_be_bytes(db.get(NEXT_INDEX_KEY).await?.unwrap());
         let next_index = usize::from_be_bytes(next_index);
 
         // Load cache vec
