@@ -91,7 +91,7 @@ where
             array
         }
         // Load existing db instance
-        let mut db = D::load(db_config).await?;
+        let db = D::load(db_config).await?;
 
         // Load root
         let root = H::deserialize(db.get(Key(0, 0).into()).await?.unwrap());
@@ -120,13 +120,13 @@ where
     }
 
     /// Sets a leaf at the specified tree index
-    pub async fn set(&mut self, key: usize, leaf: H::Fr) -> PmtreeResult<()> {
+    pub async fn set(&mut self, key: usize, leaf: H::Fr, pre_image: Option<D::PreImage>) -> PmtreeResult<()> {
         if key >= self.capacity() {
             return Err(PmtreeErrorKind::TreeError(TreeErrorKind::IndexOutOfBounds));
         }
 
         self.db
-            .put(Key(self.depth, key).into(), H::serialize(leaf)).await?;
+            .put_with_pre_image(Key(self.depth, key).into(), H::serialize(leaf), pre_image).await?;
         self.recalculate_from(key).await?;
 
         // Update next_index in memory
@@ -184,14 +184,14 @@ where
             return Err(PmtreeErrorKind::TreeError(TreeErrorKind::InvalidKey));
         }
 
-        self.set(key, H::default_leaf()).await?;
+        self.set(key, H::default_leaf(), None).await?;
 
         Ok(())
     }
 
     /// Inserts a leaf to the next available index
-    pub async fn update_next(&mut self, leaf: H::Fr) -> PmtreeResult<()> {
-        self.set(self.next_index, leaf).await?;
+    pub async fn update_next(&mut self, leaf: H::Fr, pre_image: Option<D::PreImage>) -> PmtreeResult<()> {
+        self.set(self.next_index, leaf, pre_image).await?;
 
         Ok(())
     }

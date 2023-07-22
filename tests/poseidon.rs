@@ -50,6 +50,7 @@ struct MemoryDBConfig;
 #[async_trait]
 impl Database for MemoryDB {
     type Config = MemoryDBConfig;
+    type PreImage = ();
 
     async fn new(_db_config: MemoryDBConfig) -> PmtreeResult<Self> {
         Ok(MemoryDB(HashMap::new()))
@@ -61,8 +62,16 @@ impl Database for MemoryDB {
         ))
     }
 
-    async fn get(&mut self, key: DBKey) -> PmtreeResult<Option<Value>> {
+    async fn get(&self, key: DBKey) -> PmtreeResult<Option<Value>> {
         Ok(self.0.get(&key).cloned())
+    }
+
+    async fn get_pre_image(&self, _key: DBKey) -> PmtreeResult<Option<Self::PreImage>> {
+        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
+    }
+
+    async fn put_with_pre_image(&mut self, _key: DBKey, _value: Value, _pre_image: Option<Self::PreImage>) -> PmtreeResult<()> {
+        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
     }
 
     async fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
@@ -86,6 +95,7 @@ struct SledConfig {
 #[async_trait]
 impl Database for MySled {
     type Config = SledConfig;
+    type PreImage = ();
 
     async fn new(db_config: SledConfig) -> PmtreeResult<Self> {
         let db = sled::open(db_config.path).unwrap();
@@ -111,8 +121,16 @@ impl Database for MySled {
         Ok(MySled(db))
     }
 
-    async fn get(&mut self, key: DBKey) -> PmtreeResult<Option<Value>> {
+    async fn get(&self, key: DBKey) -> PmtreeResult<Option<Value>> {
         Ok(self.0.get(key).unwrap().map(|val| val.to_vec()))
+    }
+
+    async fn get_pre_image(&self, _key: DBKey) -> PmtreeResult<Option<Self::PreImage>> {
+        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
+    }
+
+    async fn put_with_pre_image(&mut self, _key: DBKey, _value: Value, _pre_image: Option<Self::PreImage>) -> PmtreeResult<()> {
+        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
     }
 
     async fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
@@ -146,7 +164,7 @@ async fn poseidon_memory() -> PmtreeResult<()> {
     let id_commitment = poseidon_hash(&[identity_secret]);
 
     // let default_leaf = Fr::from(0);
-    mt.set(leaf_index, id_commitment).await.unwrap();
+    mt.set(leaf_index, id_commitment, None).await.unwrap();
 
     // We check correct computation of the root
     let root = mt.root();
@@ -275,7 +293,7 @@ async fn poseidon_sled() -> PmtreeResult<()> {
     let id_commitment = poseidon_hash(&[identity_secret]);
 
     // let default_leaf = Fr::from(0);
-    mt.set(leaf_index, id_commitment).await.unwrap();
+    mt.set(leaf_index, id_commitment, None).await.unwrap();
 
     // We check correct computation of the root
     let root = mt.root();

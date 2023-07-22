@@ -14,6 +14,7 @@ struct MemoryDBConfig;
 #[async_trait]
 impl Database for MemoryDB {
     type Config = MemoryDBConfig;
+    type PreImage = ();
 
     async fn new(_db_config: MemoryDBConfig) -> PmtreeResult<Self> {
         Ok(MemoryDB(HashMap::new()))
@@ -25,8 +26,16 @@ impl Database for MemoryDB {
         ))
     }
 
-    async fn get(&mut self, key: DBKey) -> PmtreeResult<Option<Value>> {
+    async fn get(&self, key: DBKey) -> PmtreeResult<Option<Value>> {
         Ok(self.0.get(&key).cloned())
+    }
+
+    async fn get_pre_image(&self, _key: DBKey) -> PmtreeResult<Option<Self::PreImage>> {
+        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
+    }
+
+    async fn put_with_pre_image(&mut self, _key: DBKey, _value: Value, _pre_image: Option<Self::PreImage>) -> PmtreeResult<()> {
+        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
     }
 
     async fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
@@ -95,7 +104,7 @@ async fn insert_delete() -> PmtreeResult<()> {
     ];
 
     for i in 0..leaves.len() {
-        mt.update_next(leaves[i]).await?;
+        mt.update_next(leaves[i], None).await?;
         assert_eq!(mt.root(), roots[i]);
     }
 
@@ -110,7 +119,7 @@ async fn insert_delete() -> PmtreeResult<()> {
 
     assert_eq!(mt.root(), default_tree_root);
 
-    assert!(mt.update_next(leaves[0]).await.is_err());
+    assert!(mt.update_next(leaves[0], None).await.is_err());
 
     Ok(())
 }

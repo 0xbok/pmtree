@@ -28,6 +28,7 @@ pub enum TreeErrorKind {
     MerkleTreeIsFull,
     InvalidKey,
     IndexOutOfBounds,
+    PreImageNotSupported,
     CustomError(String),
 }
 
