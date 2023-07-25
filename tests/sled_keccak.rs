@@ -1,9 +1,9 @@
+use async_trait::async_trait;
 use hex_literal::hex;
 use pmtree::*;
 use std::collections::HashMap;
 use std::fs;
 use tiny_keccak::{Hasher as _, Keccak};
-use async_trait::async_trait;
 
 struct MyKeccak(Keccak);
 struct MySled(sled::Db);
@@ -47,11 +47,18 @@ impl Database for MySled {
     }
 
     async fn get_pre_image(&self, _key: DBKey) -> PmtreeResult<Option<Self::PreImage>> {
-        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
+        Err(PmtreeErrorKind::TreeError(
+            TreeErrorKind::PreImageNotSupported,
+        ))
     }
 
-    async fn put_with_pre_image(&mut self, _key: DBKey, _value: Value, _pre_image: Option<Self::PreImage>) -> PmtreeResult<()> {
-        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
+    async fn put_with_pre_image(
+        &mut self,
+        key: DBKey,
+        value: Value,
+        _pre_image: Option<Self::PreImage>,
+    ) -> PmtreeResult<()> {
+        self.put(key, value).await
     }
 
     async fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
@@ -108,7 +115,8 @@ async fn insert_delete() -> PmtreeResult<()> {
         SledConfig {
             path: String::from("abacabas"),
         },
-    ).await?;
+    )
+    .await?;
 
     assert_eq!(mt.capacity(), 4);
     assert_eq!(mt.depth(), 2);
@@ -162,7 +170,8 @@ async fn batch_insertions() -> PmtreeResult<()> {
         SledConfig {
             path: String::from("abacabasa"),
         },
-    ).await?;
+    )
+    .await?;
 
     let leaves = [
         hex!("0000000000000000000000000000000000000000000000000000000000000001"),
@@ -178,18 +187,18 @@ async fn batch_insertions() -> PmtreeResult<()> {
         hex!("a9bb8c3f1f12e9aa903a50c47f314b57610a3ab32f2d463293f58836def38d36")
     );
 
-    fs::remove_dir_all("abacabasa").expect("Error removing db");
-    let mt = MerkleTree::<MySled, MyKeccak>::load(
-        SledConfig {
-            path: String::from("abacabasa"),
-        },
-    ).await?;
+    drop(mt);
+    let mt = MerkleTree::<MySled, MyKeccak>::load(SledConfig {
+        path: String::from("abacabasa"),
+    })
+    .await?;
 
     assert_eq!(
         mt.root(),
         hex!("a9bb8c3f1f12e9aa903a50c47f314b57610a3ab32f2d463293f58836def38d36")
     );
 
+    fs::remove_dir_all("abacabasa").expect("Error removing db");
     Ok(())
 }
 
@@ -200,7 +209,8 @@ async fn set_range() -> PmtreeResult<()> {
         SledConfig {
             path: String::from("abacabasab"),
         },
-    ).await?;
+    )
+    .await?;
 
     let leaves = [
         hex!("0000000000000000000000000000000000000000000000000000000000000001"),

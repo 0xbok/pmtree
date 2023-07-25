@@ -1,10 +1,9 @@
 use crate::*;
 
+use async_recursion::async_recursion;
 use std::cmp::{max, min};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use async_recursion::async_recursion;
-
 
 // db[DEPTH_KEY] = depth
 const DEPTH_KEY: DBKey = (u64::MAX - 1).to_be_bytes();
@@ -20,6 +19,20 @@ impl From<Key> for DBKey {
     fn from(key: Key) -> Self {
         let cantor_pairing = ((key.0 + key.1) * (key.0 + key.1 + 1) / 2 + key.1) as u64;
         cantor_pairing.to_be_bytes()
+    }
+}
+
+impl From<DBKey> for Key {
+    fn from(db_key: DBKey) -> Key {
+        let z = usize::from_be_bytes(db_key);
+
+        let w = ((8.0 * (z as f64) + 1.0).sqrt() - 1.0) / 2.0;
+        let w = w.floor() as usize;
+        let t = w * (w + 1) / 2;
+        let y = z - t;
+        let x = w - y;
+
+        Key(x, y)
     }
 }
 
@@ -64,7 +77,8 @@ where
 
         // Initialize one branch of the `Merkle Tree` from bottom to top
         cache[depth] = H::default_leaf();
-        db.put(Key(depth, 0).into(), H::serialize(cache[depth])).await?;
+        db.put(Key(depth, 0).into(), H::serialize(cache[depth]))
+            .await?;
         for i in (0..depth).rev() {
             cache[i] = H::hash(&[cache[i + 1], cache[i + 1]]);
             db.put(Key(i, 0).into(), H::serialize(cache[i])).await?;
@@ -120,13 +134,19 @@ where
     }
 
     /// Sets a leaf at the specified tree index
-    pub async fn set(&mut self, key: usize, leaf: H::Fr, pre_image: Option<D::PreImage>) -> PmtreeResult<()> {
+    pub async fn set(
+        &mut self,
+        key: usize,
+        leaf: H::Fr,
+        pre_image: Option<D::PreImage>,
+    ) -> PmtreeResult<()> {
         if key >= self.capacity() {
             return Err(PmtreeErrorKind::TreeError(TreeErrorKind::IndexOutOfBounds));
         }
 
         self.db
-            .put_with_pre_image(Key(self.depth, key).into(), H::serialize(leaf), pre_image).await?;
+            .put_with_pre_image(Key(self.depth, key).into(), H::serialize(leaf), pre_image)
+            .await?;
         self.recalculate_from(key).await?;
 
         // Update next_index in memory
@@ -148,7 +168,9 @@ where
             let value = self.hash_couple(depth, i).await?;
             i >>= 1;
             depth -= 1;
-            self.db.put(Key(depth, i).into(), H::serialize(value)).await?;
+            self.db
+                .put(Key(depth, i).into(), H::serialize(value))
+                .await?;
 
             if depth == 0 {
                 self.root = value;
@@ -172,7 +194,8 @@ where
     async fn get_elem(&mut self, key: Key) -> PmtreeResult<H::Fr> {
         let res = self
             .db
-            .get(key.into()).await?
+            .get(key.into())
+            .await?
             .map_or(self.cache[key.0], |value| H::deserialize(value));
 
         Ok(res)
@@ -190,7 +213,11 @@ where
     }
 
     /// Inserts a leaf to the next available index
-    pub async fn update_next(&mut self, leaf: H::Fr, pre_image: Option<D::PreImage>) -> PmtreeResult<()> {
+    pub async fn update_next(
+        &mut self,
+        leaf: H::Fr,
+        pre_image: Option<D::PreImage>,
+    ) -> PmtreeResult<()> {
         self.set(self.next_index, leaf, pre_image).await?;
 
         Ok(())
@@ -205,11 +232,16 @@ where
         self.batch_insert(
             Some(start),
             leaves.into_iter().collect::<Vec<_>>().as_slice(),
-        ).await
+        )
+        .await
     }
 
     /// Batch insertion, updates the tree in parallel.
-    pub async fn batch_insert(&mut self, start: Option<usize>, leaves: &[H::Fr]) -> PmtreeResult<()> {
+    pub async fn batch_insert(
+        &mut self,
+        start: Option<usize>,
+        leaves: &[H::Fr],
+    ) -> PmtreeResult<()> {
         let start = start.unwrap_or(self.next_index);
         let end = start + leaves.len();
 
@@ -222,7 +254,8 @@ where
         let root_key = Key(0, 0);
 
         subtree.insert(root_key, self.root);
-        self.fill_nodes(root_key, start, end, &mut subtree, leaves, start).await?;
+        self.fill_nodes(root_key, start, end, &mut subtree, leaves, start)
+            .await?;
 
         let subtree = Arc::new(RwLock::new(subtree));
 
@@ -234,18 +267,21 @@ where
 
         let subtree = RwLock::into_inner(Arc::try_unwrap(subtree).unwrap()).unwrap();
 
-        self.db.put_batch(
-            subtree
-                .into_iter()
-                .map(|(key, value)| (key.into(), H::serialize(value)))
-                .collect(),
-        ).await?;
+        self.db
+            .put_batch(
+                subtree
+                    .into_iter()
+                    .map(|(key, value)| (key.into(), H::serialize(value)))
+                    .collect(),
+            )
+            .await?;
 
         // Update next_index value in db
         if end > self.next_index {
             self.next_index = end;
             self.db
-                .put(NEXT_INDEX_KEY, self.next_index.to_be_bytes().to_vec()).await?;
+                .put(NEXT_INDEX_KEY, self.next_index.to_be_bytes().to_vec())
+                .await?;
         }
 
         // Update root value in memory
@@ -284,11 +320,13 @@ where
         let half = 1 << (self.depth - key.0 - 1);
 
         if start < half {
-            self.fill_nodes(left, start, min(end, half), subtree, leaves, from).await?;
+            self.fill_nodes(left, start, min(end, half), subtree, leaves, from)
+                .await?;
         }
 
         if end > half {
-            self.fill_nodes(right, 0, end - half, subtree, leaves, from).await?;
+            self.fill_nodes(right, 0, end - half, subtree, leaves, from)
+                .await?;
         }
 
         Ok(())
@@ -416,4 +454,19 @@ impl<H: Hasher> MerkleProof<H> {
     pub fn length(&self) -> usize {
         self.0.len()
     }
+}
+
+#[tokio::test]
+async fn test_key_index_conversion() {
+    let key = Key(100, 2004);
+    assert_eq!(key, Key::from(DBKey::from(key)));
+
+    let key = Key(101, 205);
+    assert_eq!(key, Key::from(DBKey::from(key)));
+
+    let key = Key(101, 2004);
+    assert_eq!(key, Key::from(DBKey::from(key)));
+
+    let key = Key(100, 205);
+    assert_eq!(key, Key::from(DBKey::from(key)));
 }

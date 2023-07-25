@@ -1,9 +1,8 @@
+use async_trait::async_trait;
 use hex_literal::hex;
 use pmtree::*;
 use std::collections::HashMap;
 use tiny_keccak::{Hasher as _, Keccak};
-use async_trait::async_trait;
-
 
 struct MemoryDB(HashMap<DBKey, Value>);
 struct MyKeccak(Keccak);
@@ -31,11 +30,18 @@ impl Database for MemoryDB {
     }
 
     async fn get_pre_image(&self, _key: DBKey) -> PmtreeResult<Option<Self::PreImage>> {
-        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
+        Err(PmtreeErrorKind::TreeError(
+            TreeErrorKind::PreImageNotSupported,
+        ))
     }
 
-    async fn put_with_pre_image(&mut self, _key: DBKey, _value: Value, _pre_image: Option<Self::PreImage>) -> PmtreeResult<()> {
-        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
+    async fn put_with_pre_image(
+        &mut self,
+        key: DBKey,
+        value: Value,
+        _pre_image: Option<Self::PreImage>,
+    ) -> PmtreeResult<()> {
+        self.put(key, value).await
     }
 
     async fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {

@@ -6,10 +6,10 @@ use rln::poseidon_hash::poseidon_hash;
 use rln::protocol::hash_to_field;
 use rln::utils::str_to_fr;
 
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
-use async_trait::async_trait;
 
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
@@ -67,11 +67,18 @@ impl Database for MemoryDB {
     }
 
     async fn get_pre_image(&self, _key: DBKey) -> PmtreeResult<Option<Self::PreImage>> {
-        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
+        Err(PmtreeErrorKind::TreeError(
+            TreeErrorKind::PreImageNotSupported,
+        ))
     }
 
-    async fn put_with_pre_image(&mut self, _key: DBKey, _value: Value, _pre_image: Option<Self::PreImage>) -> PmtreeResult<()> {
-        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
+    async fn put_with_pre_image(
+        &mut self,
+        key: DBKey,
+        value: Value,
+        _pre_image: Option<Self::PreImage>,
+    ) -> PmtreeResult<()> {
+        self.put(key, value).await
     }
 
     async fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
@@ -126,11 +133,18 @@ impl Database for MySled {
     }
 
     async fn get_pre_image(&self, _key: DBKey) -> PmtreeResult<Option<Self::PreImage>> {
-        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
+        Err(PmtreeErrorKind::TreeError(
+            TreeErrorKind::PreImageNotSupported,
+        ))
     }
 
-    async fn put_with_pre_image(&mut self, _key: DBKey, _value: Value, _pre_image: Option<Self::PreImage>) -> PmtreeResult<()> {
-        Err(PmtreeErrorKind::TreeError(TreeErrorKind::PreImageNotSupported))
+    async fn put_with_pre_image(
+        &mut self,
+        key: DBKey,
+        value: Value,
+        _pre_image: Option<Self::PreImage>,
+    ) -> PmtreeResult<()> {
+        self.put(key, value).await
     }
 
     async fn put(&mut self, key: DBKey, value: Value) -> PmtreeResult<()> {
@@ -156,7 +170,8 @@ impl Database for MySled {
 
 #[tokio::test]
 async fn poseidon_memory() -> PmtreeResult<()> {
-    let mut mt = MerkleTree::<MemoryDB, PoseidonHash>::new(TEST_TREE_HEIGHT, MemoryDBConfig).await?;
+    let mut mt =
+        MerkleTree::<MemoryDB, PoseidonHash>::new(TEST_TREE_HEIGHT, MemoryDBConfig).await?;
 
     let leaf_index = 3;
 
@@ -285,7 +300,8 @@ async fn poseidon_sled() -> PmtreeResult<()> {
         SledConfig {
             path: String::from("abacaba"),
         },
-    ).await?;
+    )
+    .await?;
 
     let leaf_index = 3;
 
