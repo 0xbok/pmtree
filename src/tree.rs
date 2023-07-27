@@ -14,7 +14,7 @@ const NEXT_INDEX_KEY: DBKey = u64::MAX.to_be_bytes();
 // Denotes keys (depth, index) in Merkle Tree. Can be converted to DBKey
 // TODO! Think about using hashing for that
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct Key(usize, usize);
+pub struct Key(pub usize, pub usize);
 impl From<Key> for DBKey {
     fn from(key: Key) -> Self {
         let cantor_pairing = ((key.0 + key.1) * (key.0 + key.1 + 1) / 2 + key.1) as u64;
@@ -23,7 +23,7 @@ impl From<Key> for DBKey {
 }
 
 impl From<DBKey> for Key {
-    fn from(db_key: DBKey) -> Key {
+    fn from(db_key: DBKey) -> Self {
         let z = usize::from_be_bytes(db_key);
 
         let w = ((8.0 * (z as f64) + 1.0).sqrt() - 1.0) / 2.0;
