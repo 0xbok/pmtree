@@ -42,7 +42,7 @@ where
     D: Database,
     H: Hasher,
 {
-    db: D,
+    pub db: D,
     depth: usize,
     next_index: usize,
     cache: Vec<H::Fr>,
@@ -394,6 +394,10 @@ where
         }
 
         self.get_elem(Key(self.depth, key)).await
+    }
+
+    pub async fn get_pre_image(&self, key: usize) -> PmtreeResult<Option<D::PreImage>> {
+        self.db.get_pre_image(Key(self.depth, key).into()).await
     }
 
     /// Returns the root of the tree
